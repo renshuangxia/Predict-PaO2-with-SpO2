@@ -9,14 +9,14 @@ from scipy import stats
 from sklearn.preprocessing import StandardScaler
 from sklearn import model_selection,  linear_model, svm
 from tensorflow import set_random_seed
-np.random.seed(1)
-set_random_seed(1)
-
+import argparse
 import warnings
 warnings.filterwarnings('ignore')
 
+np.random.seed(1)
+set_random_seed(1)
 
-def init_data(path='new_data.csv', seven_features=False):
+def init_data(path='new_data.csv', seven_features=False, fitlerSpO2=False):
     df = pd.read_csv(path)
 
     # delete example which Sao2 value larger than 800
@@ -41,8 +41,9 @@ def init_data(path='new_data.csv', seven_features=False):
     df = df[60<=df.Spo2]
     # delete sample which has Peep>=40
     df = df[40>=df.Peep]
-    # delete spo2>96
-    df = df[97 > df.Spo2]
+    # delete spo2 > 96
+    if fitlerSpO2:
+        df = df[97 > df.Spo2]
 
     df.info()
     if seven_features:
@@ -261,8 +262,8 @@ def nn_predictor(data):
     plt.close()
 
 
-def run_predictor(path, model='linear_regression', seven_features=False):
-    data = init_data(path, seven_features=seven_features)
+def run_predictor(path, model='linear_regression', seven_features=False, fitlerSpO2=False):
+    data = init_data(path, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
     X = data[:, 0:-1]
     y = data[:, -1]
 
@@ -345,18 +346,26 @@ def run_predictor(path, model='linear_regression', seven_features=False):
     plt.show()
 
 
-def main():
-    # 3 Features
-    #run_predictor('new_data.csv') # linear regression
-    #run_predictor('new_data.csv', 'sgd')  # SGD regression
-    #run_predictor('new_data.csv', 'svr')# support vector regression
-    #run_predictor('new_data.csv', 'neural_network') # neural network
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data',dest='data', type=str,
+                        default='new_data.csv', help='Path to data file')
+    parser.add_argument('--model', dest='model', type=str,
+                        default='sgd', help='model to run: linear_regression, sgd, neural_network, svr')
+    parser.add_argument('--seven_features', dest='seven_features', type=bool,
+                        default=False, help='If true, use 7 input features, if false, use 3 input features')
+    parser.add_argument('--fitlerSpO2', dest='filterSpO2', type=bool,
+                        default=True, help='Whether or not to filter samples with SpO2 value greater than 96')
+    return parser.parse_args()
 
-    # 7 Features
-    #run_predictor(data, seven_features=True) # linear regression
-    run_predictor('new_data.csv', 'sgd', seven_features=True)  # SGD regression
-    #run_predictor('new_data.csv', 'svr', seven_features=True)# support vector regression
-    #run_predictor('new_data.csv', 'neural_network', seven_features=True)  # neural network
+
+def main():
+    args = parse_arguments()
+    path = args.data
+    model = args.model
+    seven_features = args.seven_features
+    fitlerSpO2 = args.filterSpO2
+    run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
 
 
 if __name__ == '__main__':
