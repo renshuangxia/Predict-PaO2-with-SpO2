@@ -10,10 +10,11 @@ import warnings
 warnings.filterwarnings('ignore')
 from scipy.stats import itemfreq
 import matplotlib.pyplot as plt
+import argparse
 
 np.random.seed(1)
 
-def read_data(path, multi_class=False, seven_features=False):
+def read_data(path, multi_class=False, seven_features=False, fitlerSpO2=True):
     print("Reading data from",path)
     df = pd.read_csv(path)
 
@@ -40,8 +41,9 @@ def read_data(path, multi_class=False, seven_features=False):
     # delete sample which has Peep>=40
     df = df[40>=df.Peep]
 
-    # delete spo2>96
-    df = df[97 > df.Spo2]
+    # delete spo2 > 96
+    if fitlerSpO2:
+        df = df[97 > df.Spo2]
 
     df.info()
 
@@ -202,11 +204,11 @@ def run_mc_classifier(path):
     print("f1:",metrics.f1_score(y_test, y_pred, average='micro')) #use micro or macro F1 instead of accuracy
 
 
-def run_classifier(path, model='logistic_regression', seven_features=False):
+def run_classifier(path, model='logistic_regression', seven_features=False, fitlerSpO2=True):
     if model == 'multi_class':
-        data, df = read_data(path, multi_class=True, seven_features=seven_features)
+        data, df = read_data(path, multi_class=True, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
     else:
-        data, df = read_data(path, seven_features=seven_features)
+        data, df = read_data(path, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
 
     print("-----------------------------------------------")
     if model == 'multi_class':
@@ -264,23 +266,26 @@ def run_classifier(path, model='logistic_regression', seven_features=False):
     print('==================================================')
 
 
+def parse_arguments():
+    parser = argparse.ArgumentParser()
+    parser.add_argument('--data',dest='data', type=str,
+                        default='new_data.csv', help='Path to data file')
+    parser.add_argument('--model', dest='model', type=str,
+                        default='logistic_regression', help='model to run: logistic_regression, sgd, mlp, svc')
+    parser.add_argument('--seven_features', dest='seven_features', type=bool,
+                        default=True, help='If true, use 7 input features, if false, use 3 input features')
+    parser.add_argument('--fitlerSpO2', dest='filterSpO2', type=bool,
+                        default=False, help='Whether or not to filter samples with SpO2 value greater than 96')
+    return parser.parse_args()
+
+
 def main():
-
-    # Run 3 Features
-    #run_classifier('new_data.csv') # logistic regression
-    run_classifier('new_data.csv', model='sgd') # SGD classifier
-    #run_classifier('new_data.csv', model='mlp') # neural network
-    #run_classifier('new_data.csv', model='multi_class')
-    #run_classifier('new_data.csv', model='svc') # SVM
-    #run_mc_classifier('new_data.csv')
-
-    # Run 7 Features
-    #run_classifier('new_data.csv', seven_features=True)  # logistic regression
-    #run_classifier('new_data.csv', model='sgd', seven_features=True)  # SGD classifier
-    #run_classifier('new_data.csv', model='mlp', seven_features=True)  # neural network
-    #run_classifier('new_data.csv', model='multi_class', seven_features=True)
-    #run_classifier('new_data.csv', model='svc', seven_features=True)  # SVM
-    #run_mc_classifier('new_data.csv')
+    args = parse_arguments()
+    path = args.data
+    model = args.model
+    seven_features = args.seven_features
+    fitlerSpO2 = args.filterSpO2
+    run_classifier(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
 
 
 if __name__ == '__main__':
