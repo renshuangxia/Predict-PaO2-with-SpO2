@@ -388,9 +388,6 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         rmse_result = np_rmse(np.array(inverse_test_pred).flatten(), np.array(y_test).flatten())
         rmse_results.append(rmse_result)
 
-        #bic_val = 0.0
-        #print('inversed pred: ', inverse_test_pred)
-        #bic_val = bic.bic(y_test, inverse_test_pred, n_features)
         bic_val = y_test.shape[0] * np.log(rmse_result ** 2) + n_features * np.log(y_test.shape[0])
         bic_scores.append(bic_val)
 
