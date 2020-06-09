@@ -1,20 +1,28 @@
 import numpy as np
 import pandas as pd
 import matplotlib.pyplot as plt
+import tensorflow as tf
 from sklearn.model_selection import train_test_split
-from keras.models import Sequential
-from keras.layers import Dense
+from keras.models import Sequential, clone_model, load_model, save_model
+from keras.layers import Dense, Dropout, BatchNormalization
 from keras import backend
 from scipy import stats
 from sklearn.preprocessing import StandardScaler
-from sklearn import model_selection,  linear_model, svm
+from sklearn import model_selection,  linear_model, svm, base
+from sklearn.metrics import mean_squared_error
+from RegscorePy import bic
 from tensorflow import set_random_seed
-import argparse
+from joblib import dump, load
+import argparse, os
 import warnings
 warnings.filterwarnings('ignore')
 
+import os
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
 np.random.seed(1)
-set_random_seed(1)
+# set_random_seed(1)
+tf.compat.v1.set_random_seed
 
 def init_data(path='new_data.csv', seven_features=False, fitlerSpO2=False):
     df = pd.read_csv(path)
@@ -168,6 +176,22 @@ def normalize(X_train, X_test, y_train, y_test, seven_features=False):
     y_test_scale = output_scaler.transform(y_test)
     return X_train_scale, X_test_scale,y_train_scale, y_test_scale, output_scaler
 
+def normalize_X_y(X, y, seven_features=False):
+    input_scaler = StandardScaler()
+    output_scaler = StandardScaler()
+    if seven_features:
+        input_scaler.fit(X[:, 0:-1])
+        X_scale = input_scaler.transform(X[:, 0:-1])
+        X_scale = np.concatenate((X_scale, X[:,-1].reshape(len(X[:,-1]),1)),axis = 1)
+    else:
+        input_scaler.fit(X)
+        X_scale = input_scaler.transform(X)
+
+    y = y.reshape(len(y), 1)
+    output_scaler.fit(y)
+    y_scale = output_scaler.transform(y)
+    return X_scale, y_scale, output_scaler
+
 def np_rmse(arr1,arr2):
     return np.sqrt(np.mean((arr1-arr2)**2))
 
@@ -209,6 +233,19 @@ def get_baseline(X, y):
     #print("nonlinear_rmse", nonlinear_rmse, "nonlinear_pred_y", pred_pao2_nonlinear, "y_test_nonlinear", y)
 
     return loglinear_rmse, nonlinear_rmse, pfratio, pred_pfratio_loglinear,pred_pfratio_nonlinear
+
+
+def bland_altman_plot(data1, data2, *args, **kwargs):
+    data1     = np.asarray(data1)
+    data2     = np.asarray(data2)
+    mean      = np.mean([data1, data2], axis=0)
+    diff      = data1 - data2                   # Difference between data1 and data2
+    md        = np.mean(diff)                   # Mean of the difference
+    sd        = np.std(diff, axis=0)            # Standard deviation of the difference
+    plt.scatter(mean, diff, *args, **kwargs)
+    plt.axhline(md,           color='gray', linestyle='--')
+    plt.axhline(md + 1.96*sd, color='gray', linestyle='--')
+    plt.axhline(md - 1.96*sd, color='gray', linestyle='--')
 
 
 # use neural network, no n-fold verion, test size 30%
@@ -262,17 +299,27 @@ def nn_predictor(data):
     plt.close()
 
 
-def run_predictor(path, model='linear_regression', seven_features=False, fitlerSpO2=False):
-    data = init_data(path, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
+def run_predictor(path, model='linear_regression', seven_features=False, filterSpO2=False, load_model=False):
+    data = init_data(path, seven_features=seven_features, fitlerSpO2=filterSpO2)
     X = data[:, 0:-1]
     y = data[:, -1]
 
-    stratifier = model_selection.StratifiedKFold(n_splits=10, shuffle=False)
+    if filterSpO2:
+        subSpO2Folder = 'FilteredSpO2/'
+    else:
+        subSpO2Folder = 'NoSpO2Filtering/'
 
+    if seven_features:
+        n_features = 7
+    else:
+        n_features = 3
+
+    kFold = model_selection.KFold(n_splits=10, shuffle=True, random_state=1)
     rmse_results = []
+    bic_scores = []
     total_inversed_preds = []
     i = 1
-    for train_index, test_index in stratifier.split(X, y):
+    for train_index, test_index in kFold.split(X, y):
         print("Current fold:",i)
         i += 1
         X_train, X_test = X[train_index], X[test_index]
@@ -283,28 +330,56 @@ def run_predictor(path, model='linear_regression', seven_features=False, fitlerS
         y_test_scale = np.array(y_test_scale).squeeze()
 
         if model == 'svr':
+            model_name = 'svr'
             predictor = svm.SVR(kernel='rbf')
         elif model == 'neural_network':
+            model_name = 'Neural Network'
             predictor = Sequential()
-            if seven_features:
+            if seven_features: # 16, 8, 5, 1, current best, second best 8, 4, 4 ,1 with 0.8 dropout
+                # predictor.add(Dense(8, input_dim=7, activation='tanh'))
+                # #predictor.add(Dropout(0.8, input_shape=(8,)))
+                # predictor.add(Dense(4, activation='tanh'))
+                # #predictor.add(Dropout(0.8, input_shape=(4,)))
+                # predictor.add(Dense(4, activation='tanh'))
+                # predictor.add(Dense(1, activation='linear'))
+
                 predictor.add(Dense(16, input_dim=7, activation='tanh'))
                 predictor.add(Dense(8, activation='tanh'))
                 predictor.add(Dense(5, activation='tanh'))
                 predictor.add(Dense(1, activation='linear'))
             else:
                 predictor.add(Dense(6, input_dim=3, activation='tanh'))
+                # predictor.add(Dropout(0.5, input_shape=(6,)))
                 predictor.add(Dense(3, activation='tanh'))
+                # predictor.add(Dropout(0.5, input_shape=(3,)))
                 predictor.add(Dense(1, activation='linear'))
             predictor.compile(loss='mean_squared_error', optimizer='adam', metrics=[rmse])
+            final_predictor = clone_model(predictor)
         elif model == 'sgd':
+            model_name = 'SGDRegressor'
             predictor = linear_model.SGDRegressor()
+        elif model == 'ridge':
+            model_name = 'Ridge'
+            predictor = linear_model.Ridge()
         else:
+            model_name = 'Linear Regression'
             predictor = linear_model.LinearRegression()
-        print('start training...')
-        if model == 'neural_network':
-            predictor.fit(X_train_scale, y_train_scale, epochs=50, batch_size=50)
+
+        if not model == 'neural_network':
+            final_predictor = base.clone(predictor)
+
+        if load_model:
+            if model == 'neural_network':
+                predictor = load_model('saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.ckpt')
+            else:
+                predictor = load('saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.joblib')
         else:
-            predictor.fit(X_train_scale, y_train_scale)
+            print('start training...')
+            if model == 'neural_network':
+                predictor.fit(X_train_scale, y_train_scale, epochs=100, batch_size=50)
+            else:
+                predictor.fit(X_train_scale, y_train_scale)
+
         test_pred = predictor.predict(X_test_scale)
 
         inverse_test_pred = output_scaler.inverse_transform(test_pred)
@@ -313,37 +388,88 @@ def run_predictor(path, model='linear_regression', seven_features=False, fitlerS
         rmse_result = np_rmse(np.array(inverse_test_pred).flatten(), np.array(y_test).flatten())
         rmse_results.append(rmse_result)
 
-        print(model + ' rmse:', rmse_result)
+        #bic_val = 0.0
+        #print('inversed pred: ', inverse_test_pred)
+        #bic_val = bic.bic(y_test, inverse_test_pred, n_features)
+        bic_val = y_test.shape[0] * np.log(rmse_result ** 2) + n_features * np.log(y_test.shape[0])
+        bic_scores.append(bic_val)
+
+        # bic_val_2 = y_test.shape[0]  * np.log(rmse_result **2) + n_features * np.log(y_test.shape[0]) # for BIC calculation validation
+        # print('BIC 2: ', bic_val_2)
+        print(model + ' rmse:', rmse_result, '  BIC:', bic_val)
+        #print('sklearn RMSE: ', np.sqrt(mean_squared_error(y_test, inverse_test_pred)))
+
+    # train a final model using entire set
+    if not load_model:
+        X_scale, y_scale, _ = normalize_X_y(X, y, seven_features=seven_features)
+        y_scale = np.array(y_scale).squeeze()
+        if model == 'neural_network':
+            final_predictor.compile(loss='mean_squared_error', optimizer='adam', metrics=[rmse])
+            final_predictor.fit(X_scale, y_scale, epochs=100, batch_size=50)
+        else:
+            final_predictor.fit(X_scale, y_scale)
+
+        if not os.path.exists('saved_models'):
+            os.mkdir('saved_models')
+
+        if not os.path.exists('saved_models/regressor'):
+            os.mkdir('saved_models/regressor')
+
+        if model == 'neural network':
+            save_model(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.ckpt')
+        else:
+            dump(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.joblib')
 
     loglinear_rmse, nonlinear_rmse, pfratio, pred_pfratio_loglinear, pred_pfratio_nonlinear = get_baseline(X, y)
     print('\n========================')
     print('         RESULTS')
     print('------------------------')
+    print('Seven Features: ', seven_features)
+    print('Filtered SpO2: ', filterSpO2)
     print('total cases:', X.shape[0])
     print("loglinear_rmse,", loglinear_rmse)
     print("nonlinear_rmse", nonlinear_rmse)
     mean_rmse = np.mean(np.array(rmse_results))
-    print(model + ' mean rmse:', mean_rmse)
+    mean_bic = np.mean(np.array(bic_scores))
+    print('   ' + model)
+    print('  * mean rmse:', mean_rmse)
+    print('  *  mean BIC:', mean_bic)
     print('========================')
     total_inversed_preds = np.array(total_inversed_preds)
 
-    # plot
-    print("plot results...")
-    pred_pao2_nn = total_inversed_preds.flatten()
-    fig = plt.figure()
-    ax1 = fig.add_subplot(111)
-    test_fio2 = X[:, 1]
-    pred_pfratio_nn = pred_pao2_nn / test_fio2
+    if filterSpO2 and model == 'neural_network':
+        # plot
+        print("plot results...")
+        pred_pao2_nn = total_inversed_preds.flatten()
+        fig = plt.figure()
+        ax1 = fig.add_subplot(111)
+        test_fio2 = X[:, 1]
+        pred_pfratio_nn = pred_pao2_nn / test_fio2
 
-    ax1.scatter(pfratio, pfratio - pred_pfratio_nonlinear, s=2, c='r', marker="o", label='nonlinear', alpha=0.5)
-    ax1.scatter(pfratio, pfratio - pred_pfratio_loglinear, s=2, c='b', marker="s", label='loglinear', alpha=0.5)
-    ax1.scatter(pfratio, pfratio - pred_pfratio_nn, s=2, c='y', marker="*", label='neural network', alpha=0.2)
+        #pfratio = pfratio[np.where(pfratio <= 400)]
+        plot_indicies = pfratio <= 400
+        pfratio = pfratio[plot_indicies]
+        diff_nonlinear = pfratio - pred_pfratio_nonlinear[plot_indicies]
+        diff_loglinear = pfratio - pred_pfratio_loglinear[plot_indicies]
+        diff_nn = pfratio - pred_pfratio_nn[plot_indicies]
 
-    plt.xlabel('Measured PF')
-    plt.ylabel('Measured PF - Imputed PF')
-    plt.legend(loc='upper left')
-    plt.savefig('measured_pf_and_imputed_pf.png')
-    plt.show()
+        md = np.mean(np.concatenate([diff_nonlinear, diff_loglinear, diff_nn]))
+        sd = np.std(np.concatenate([diff_nonlinear, diff_loglinear, diff_nn]))
+
+        ax1.scatter(pfratio, diff_nonlinear, s=3, c='r', marker="o", label='nonlinear', alpha=0.5)
+        ax1.scatter(pfratio, diff_loglinear, s=3, c='b', marker="s", label='loglinear', alpha=0.5)
+        ax1.scatter(pfratio, diff_nn, s=3, c='k', marker="*", label='neural network', alpha=0.5)
+
+        plt.title(model_name + ' (' + str(n_features) + ' Features)')
+        plt.axhline(md, color='gray', linestyle='--')
+        plt.axhline(md + 1.96 * sd, color='gray', linestyle='--')
+        plt.axhline(md - 1.96 * sd, color='gray', linestyle='--')
+
+        plt.xlabel('Measured PF')
+        plt.ylabel('Measured PF - Imputed PF')
+        plt.legend(loc='upper left')
+        plt.savefig('measured_pf_and_imputed_pf.png')
+        plt.show()
 
 
 def parse_arguments():
@@ -356,6 +482,8 @@ def parse_arguments():
                         default=False, help='If true, use 7 input features, if false, use 3 input features')
     parser.add_argument('--fitlerSpO2', dest='filterSpO2', type=bool,
                         default=True, help='Whether or not to filter samples with SpO2 value greater than 96')
+    parser.add_argument('--load_model', dest='load_model', type=bool,
+                        default=False, help='Whether or not to load pretrained model')  # model path is hard coded
     return parser.parse_args()
 
 
@@ -365,7 +493,10 @@ def main():
     model = args.model
     seven_features = args.seven_features
     fitlerSpO2 = args.filterSpO2
-    run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2)
+    load_model = args.load_model
+
+    run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
+    #run_predictor(path, model='neural_network', seven_features=True, filterSpO2=False, load_model=False)
 
 
 if __name__ == '__main__':
