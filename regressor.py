@@ -335,23 +335,14 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         elif model == 'neural_network':
             model_name = 'Neural Network'
             predictor = Sequential()
-            if seven_features: # 16, 8, 5, 1, current best, second best 8, 4, 4 ,1 with 0.8 dropout
-                # predictor.add(Dense(8, input_dim=7, activation='tanh'))
-                # #predictor.add(Dropout(0.8, input_shape=(8,)))
-                # predictor.add(Dense(4, activation='tanh'))
-                # #predictor.add(Dropout(0.8, input_shape=(4,)))
-                # predictor.add(Dense(4, activation='tanh'))
-                # predictor.add(Dense(1, activation='linear'))
-
+            if seven_features:
                 predictor.add(Dense(16, input_dim=7, activation='tanh'))
                 predictor.add(Dense(8, activation='tanh'))
                 predictor.add(Dense(5, activation='tanh'))
                 predictor.add(Dense(1, activation='linear'))
             else:
                 predictor.add(Dense(6, input_dim=3, activation='tanh'))
-                # predictor.add(Dropout(0.5, input_shape=(6,)))
                 predictor.add(Dense(3, activation='tanh'))
-                # predictor.add(Dropout(0.5, input_shape=(3,)))
                 predictor.add(Dense(1, activation='linear'))
             predictor.compile(loss='mean_squared_error', optimizer='adam', metrics=[rmse])
             final_predictor = clone_model(predictor)
@@ -394,7 +385,6 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         # bic_val_2 = y_test.shape[0]  * np.log(rmse_result **2) + n_features * np.log(y_test.shape[0]) # for BIC calculation validation
         # print('BIC 2: ', bic_val_2)
         print(model + ' rmse:', rmse_result, '  BIC:', bic_val)
-        #print('sklearn RMSE: ', np.sqrt(mean_squared_error(y_test, inverse_test_pred)))
 
     # train a final model using entire set
     if not load_model:
@@ -492,8 +482,9 @@ def main():
     fitlerSpO2 = args.filterSpO2
     load_model = args.load_model
 
-    run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
-    #run_predictor(path, model='neural_network', seven_features=True, filterSpO2=False, load_model=False)
+    #run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
+
+    run_predictor(path, model='neural_network', seven_features=False, filterSpO2=False, load_model=False)
 
 
 if __name__ == '__main__':

@@ -273,8 +273,6 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
             model_name = 'Neural Network'
             if seven_features:
                 classifier = MLPClassifier((12, 8, 6, 4, 4), max_iter=200, activation='tanh', solver='adam', random_state=1, momentum=0.8) # current BEST 0.7798 accuracy
-                #classifier = MLPClassifier((14, 8, 6, 6, 4), max_iter=200, activation='tanh', solver='adam', random_state=1, momentum=0.8)
-                #classifier = MLPClassifier((10, 4, 4), max_iter=200, activation='tanh', solver='adam', random_state=1, momentum=0.8) # Old best 0.774 accuracy
             else:
                 classifier = MLPClassifier((6, 3), max_iter=200, activation='tanh', solver='adam', random_state=1, momentum=0.6) # current best
 
@@ -392,9 +390,9 @@ def main():
     fitlerSpO2 = args.filterSpO2
     load_model = args.load_model
 
-    run_classifier(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
+    #run_classifier(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
 
-    #run_classifier(path, model='logistic_regression', seven_features=False, filterSpO2=True, load_model=False)
+    run_classifier(path, model='mlp', seven_features=False, filterSpO2=False, load_model=False)
 
 
 if __name__ == '__main__':
