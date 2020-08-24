@@ -15,6 +15,7 @@ from tensorflow import set_random_seed
 from joblib import dump, load
 import argparse, os
 import warnings
+
 warnings.filterwarnings('ignore')
 
 import os
@@ -452,10 +453,14 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         plt.axhline(md + 1.96 * sd, color='gray', linestyle='--')
         plt.axhline(md - 1.96 * sd, color='gray', linestyle='--')
 
+        print('Upper value:', (md + 1.96 * sd))
+        print('Lower value:', (md - 1.96 * sd))
+        print('Mean value:', md)
+
         plt.xlabel('Measured PF')
         plt.ylabel('Measured PF - Imputed PF')
         plt.legend(loc='upper left')
-        plt.savefig('measured_pf_and_imputed_pf.png')
+        plt.savefig('Figures/measured_pf_and_imputed_pf_' + str(n_features) + '_FilterSpO2_' + str(filterSpO2) + '.png')
         plt.show()
 
 
@@ -484,7 +489,7 @@ def main():
 
     #run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
 
-    run_predictor(path, model='neural_network', seven_features=False, filterSpO2=False, load_model=False)
+    run_predictor(path, model='neural_network', seven_features=False, filterSpO2=True, load_model=False)
 
 
 if __name__ == '__main__':
