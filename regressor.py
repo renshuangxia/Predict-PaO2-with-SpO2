@@ -1,20 +1,26 @@
+'''
+    Regessor model:
+    author: Shuangxia Ren
+'''
+
+import argparse
+import keras
+import random
+import warnings
+
+import matplotlib.pyplot as plt
 import numpy as np
 import pandas as pd
-import matplotlib.pyplot as plt
 import tensorflow as tf
-from sklearn.model_selection import train_test_split
-from keras.models import Sequential, clone_model, load_model, save_model
-from keras.layers import Dense, Dropout, BatchNormalization
-from keras import backend
-from scipy import stats
-from sklearn.preprocessing import StandardScaler
-from sklearn import model_selection,  linear_model, svm, base
-from sklearn.metrics import mean_squared_error
-from RegscorePy import bic
-from tensorflow import set_random_seed
 from joblib import dump, load
-import argparse, os
-import warnings
+from keras import backend
+from keras.layers import Dense
+from keras.models import Sequential, clone_model, save_model
+from scipy import stats
+from scipy.stats import linregress
+from sklearn import model_selection, linear_model, svm, base
+from sklearn.model_selection import train_test_split
+from sklearn.preprocessing import StandardScaler
 
 warnings.filterwarnings('ignore')
 
@@ -22,7 +28,8 @@ import os
 os.environ['KMP_DUPLICATE_LIB_OK']='True'
 
 np.random.seed(1)
-# set_random_seed(1)
+random.seed(1)
+
 tf.compat.v1.set_random_seed
 
 def init_data(path='new_data.csv', seven_features=False, fitlerSpO2=False):
@@ -50,7 +57,7 @@ def init_data(path='new_data.csv', seven_features=False, fitlerSpO2=False):
     df = df[60<=df.Spo2]
     # delete sample which has Peep>=40
     df = df[40>=df.Peep]
-    # delete spo2 > 96
+    # delete spo2 >= 97
     if fitlerSpO2:
         df = df[97 > df.Spo2]
 
@@ -63,20 +70,26 @@ def init_data(path='new_data.csv', seven_features=False, fitlerSpO2=False):
         data = np.array([df['Spo2'], df['Fio2'], df['Peep'], df['Vt'], df['Map'], df['Temperature'], df['vaso'], df['Pao2']])
     else:
         data = np.array([df['Spo2'], df['Fio2'], df['Peep'], df['Pao2']])
+
     data = data.T
 
     # R square between SF ratio and PF ratio
     PF_ratio = data[:, -1] / data[:, 1]
     SF_ratio = data[:, 0] / data[:, 1]
     _, _, r_value, _, _ = stats.linregress(np.log10(SF_ratio), np.log10(PF_ratio))
+
+    pf_ratio_mean = np.mean(PF_ratio)
+    pf_ratio_std = np.std(PF_ratio)
+
+    print('*Num of samples:', PF_ratio.shape[0])
+    print('*PF Ratio Mean:', pf_ratio_mean, '  *PF Ratio Std:', pf_ratio_std)
+
     r_square = r_value ** 2
     print('R value:', r_value)
     print('R Square between SF ratio and PF ratio: ', r_square)
     return data
 
 def plot(df):
-    # plt.scatter(df['Spo2'],df['Pao2'])
-    # plt.show()
     Spo2_Fio2_log = np.log10(df['Spo2']/df['Fio2'])
     Pao2_Fio2_log = np.log10(df['Pao2']/df['Fio2'])
 
@@ -224,7 +237,6 @@ def get_baseline(X, y):
     loglinear_rmse = np_rmse(y,pred_pao2_loglinear)
     pred_pfratio_loglinear = pred_pao2_loglinear/test_fio2
     #print("pfratio",pfratio,"pf_log",pred_pfratio_loglinear)
-
     #print("loglinear_rmse", loglinear_rmse, "loglinear_pred_y", pred_pao2_loglinear, "y_test_loglinear", y)
 
     test_spo2[test_spo2>99.9] = 99.6
@@ -236,25 +248,12 @@ def get_baseline(X, y):
     return loglinear_rmse, nonlinear_rmse, pfratio, pred_pfratio_loglinear,pred_pfratio_nonlinear
 
 
-def bland_altman_plot(data1, data2, *args, **kwargs):
-    data1     = np.asarray(data1)
-    data2     = np.asarray(data2)
-    mean      = np.mean([data1, data2], axis=0)
-    diff      = data1 - data2                   # Difference between data1 and data2
-    md        = np.mean(diff)                   # Mean of the difference
-    sd        = np.std(diff, axis=0)            # Standard deviation of the difference
-    plt.scatter(mean, diff, *args, **kwargs)
-    plt.axhline(md,           color='gray', linestyle='--')
-    plt.axhline(md + 1.96*sd, color='gray', linestyle='--')
-    plt.axhline(md - 1.96*sd, color='gray', linestyle='--')
-
 
 # use neural network, no n-fold verion, test size 30%
 # Not used in function run_predictor
 def nn_predictor(data):
     X_train, X_test, y_train, y_test  = train_test_split(data[:, 0:-1], data[:, -1], test_size=0.3, random_state=1)
     X_train_scale, X_test_scale, y_train_scale, y_test_scale, output_scaler = normalize(X_train, X_test, y_train, y_test)
-
 
     # model configuration and initialization
     model = Sequential()
@@ -312,6 +311,13 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
 
     if seven_features:
         n_features = 7
+        # Print coef
+        data_df = pd.DataFrame(data, columns=['SpO2', 'FiO2', 'Peep', 'Vt', 'Map', 'Temperature', 'vaso', 'PaO2'])
+        data_df['sf_ratio'] = data_df['SpO2']/data_df['FiO2']
+        data_df['pf_ratio'] = data_df['PaO2'] / data_df['FiO2']
+        coef = data_df[data_df.columns[0:]].corr()['pf_ratio'][:]
+
+        print('Feature Coef wit pf ratio:\n', coef)
     else:
         n_features = 3
 
@@ -345,7 +351,7 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
                 predictor.add(Dense(6, input_dim=3, activation='tanh'))
                 predictor.add(Dense(3, activation='tanh'))
                 predictor.add(Dense(1, activation='linear'))
-            predictor.compile(loss='mean_squared_error', optimizer='adam', metrics=[rmse])
+            predictor.compile(loss='mean_squared_error', optimizer='adam', metrics={'rmse':rmse})
             final_predictor = clone_model(predictor)
         elif model == 'sgd':
             model_name = 'SGDRegressor'
@@ -362,9 +368,13 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
 
         if load_model:
             if model == 'neural_network':
-                predictor = load_model('saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.ckpt')
+                predictor = keras.models.load_model('saved_models/regressor/'
+                                                    + subSpO2Folder + model_name.replace(' ', '_')
+                                                    + '_' + str(n_features) + '_features.ckpt',
+                                                    custom_objects={'rmse':rmse})
             else:
-                predictor = load('saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.joblib')
+                predictor = load('saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_'
+                                 + str(n_features) + '_features.joblib')
         else:
             print('start training...')
             if model == 'neural_network':
@@ -383,8 +393,6 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         bic_val = y_test.shape[0] * np.log(rmse_result ** 2) + n_features * np.log(y_test.shape[0])
         bic_scores.append(bic_val)
 
-        # bic_val_2 = y_test.shape[0]  * np.log(rmse_result **2) + n_features * np.log(y_test.shape[0]) # for BIC calculation validation
-        # print('BIC 2: ', bic_val_2)
         print(model + ' rmse:', rmse_result, '  BIC:', bic_val)
 
     # train a final model using entire set
@@ -403,15 +411,18 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         if not os.path.exists('saved_models/regressor'):
             os.mkdir('saved_models/regressor')
 
-        if model == 'neural network':
-            save_model(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.ckpt')
+        if model == 'neural_network':
+            save_model(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_')
+                        + '_' + str(n_features) + '_features.ckpt')
         else:
-            dump(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_') + '_' + str(n_features) + '_features.joblib')
+            dump(final_predictor, 'saved_models/regressor/' + subSpO2Folder + model_name.replace(' ', '_')
+                 + '_' + str(n_features) + '_features.joblib')
 
     loglinear_rmse, nonlinear_rmse, pfratio, pred_pfratio_loglinear, pred_pfratio_nonlinear = get_baseline(X, y)
     print('\n========================')
     print('         RESULTS')
     print('------------------------')
+    print('Load model: ', load_model)
     print('Seven Features: ', seven_features)
     print('Filtered SpO2: ', filterSpO2)
     print('total cases:', X.shape[0])
@@ -434,28 +445,50 @@ def run_predictor(path, model='linear_regression', seven_features=False, filterS
         test_fio2 = X[:, 1]
         pred_pfratio_nn = pred_pao2_nn / test_fio2
 
-        #pfratio = pfratio[np.where(pfratio <= 400)]
         plot_indicies = pfratio <= 400
         pfratio = pfratio[plot_indicies]
         diff_nonlinear = pfratio - pred_pfratio_nonlinear[plot_indicies]
         diff_loglinear = pfratio - pred_pfratio_loglinear[plot_indicies]
         diff_nn = pfratio - pred_pfratio_nn[plot_indicies]
 
-        md = np.mean(np.concatenate([diff_nonlinear, diff_loglinear, diff_nn]))
-        sd = np.std(np.concatenate([diff_nonlinear, diff_loglinear, diff_nn]))
+        '''
+          Plot aggrement for models
+        '''
+        md_nn = np.mean(diff_nn)
+        sd_nn = np.std(diff_nn)
 
-        ax1.scatter(pfratio, diff_nonlinear, s=3, c='r', marker="o", label='nonlinear', alpha=0.5)
-        ax1.scatter(pfratio, diff_loglinear, s=3, c='b', marker="s", label='loglinear', alpha=0.5)
-        ax1.scatter(pfratio, diff_nn, s=3, c='k', marker="*", label='neural network', alpha=0.5)
+        plt.axhline(md_nn, color='black', linestyle='--', label='limit of aggreement for neural network')
+        plt.axhline(md_nn + 1.96 * sd_nn, color='black', linestyle='--')
+        plt.axhline(md_nn - 1.96 * sd_nn, color='black', linestyle='--')
 
-        plt.title(model_name + ' (' + str(n_features) + ' Features)')
-        plt.axhline(md, color='gray', linestyle='--')
-        plt.axhline(md + 1.96 * sd, color='gray', linestyle='--')
-        plt.axhline(md - 1.96 * sd, color='gray', linestyle='--')
+        # Calculate slope and intercept and plot slope
+        slope_nonlinear, intercept_nonlinear, _, _, _ = linregress(pfratio, diff_nonlinear)
+        y_vals_nonlinear = intercept_nonlinear + slope_nonlinear * pfratio
 
-        print('Upper value:', (md + 1.96 * sd))
-        print('Lower value:', (md - 1.96 * sd))
-        print('Mean value:', md)
+        slope_loglinear, intercept_loglinear, _, _, _ = linregress(pfratio, diff_loglinear)
+        y_vals_loglinear = intercept_loglinear + slope_loglinear * pfratio
+
+        slope_nn, intercept_nn, _, _, _ = linregress(pfratio, diff_nn)
+        y_vals_nn = intercept_nn + slope_nonlinear * pfratio
+
+        ax1.scatter(pfratio, diff_nonlinear, s=0.5, c='blue', marker="*",
+                    label='nonlinear (slope=' + str(round(slope_nonlinear, 2))+ ')', alpha=0.8)
+
+        ax1.scatter(pfratio, diff_loglinear, s=0.5, c='red', marker="*",
+                    label='loglinear (slope=' + str(round(slope_loglinear, 2)) + ')', alpha=0.8)
+
+        ax1.scatter(pfratio, diff_nn, s=0.5, c='black', marker="*",
+                    label='neural network (slope=' + str(round(slope_nn, 2)) + ')', alpha=0.8)
+
+        plt.title( str(n_features) + ' Features with SpO2<97%')
+        plt.rc('font', size=8)
+
+        # plot slope
+        plt.plot(pfratio, y_vals_nonlinear, color='blue', linewidth=3)
+        plt.plot(pfratio, y_vals_loglinear, color='red', linewidth=3)
+        plt.plot(pfratio, y_vals_nn, color='black', linewidth=3)
+
+        print('SLOP:  *nonlinear=', slope_nonlinear, ' *loglinear=', slope_loglinear, ' *neural network=', slope_nn)
 
         plt.xlabel('Measured PF')
         plt.ylabel('Measured PF - Imputed PF')
@@ -487,9 +520,10 @@ def main():
     fitlerSpO2 = args.filterSpO2
     load_model = args.load_model
 
-    #run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
+    run_predictor(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
 
-    run_predictor(path, model='neural_network', seven_features=False, filterSpO2=True, load_model=False)
+    # This is for train and test in IDE without using arguments
+    #run_predictor(path, model='neural_network', seven_features=True, filterSpO2=False, load_model=True)
 
 
 if __name__ == '__main__':

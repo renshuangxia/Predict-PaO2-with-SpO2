@@ -1,6 +1,10 @@
+'''
+    Classifier model:
+    author: Shuangxia Ren
+'''
+
 import numpy as np
 import pandas as pd
-from sklearn.model_selection import train_test_split
 from sklearn import model_selection,  linear_model,  metrics, svm, base
 
 from sklearn.preprocessing import StandardScaler
@@ -10,14 +14,15 @@ import warnings
 warnings.filterwarnings('ignore')
 from scipy.stats import itemfreq
 from scipy import interp
-
+import random
 import matplotlib.pyplot as plt
 from joblib import dump, load
 
-import argparse, os
+import argparse, os, csv
 from RegscorePy import bic
 
 np.random.seed(1)
+random.seed(1)
 
 def read_data(path, multi_class=False, seven_features=False, fitlerSpO2=True):
     print("Reading data from",path)
@@ -27,14 +32,11 @@ def read_data(path, multi_class=False, seven_features=False, fitlerSpO2=True):
     df = df.drop(df[df['Sao2']>800].index)
 
     # convert temperature to correct form
-    # print("before_covert_temp",sum(df['Temperature']>50))
-    # print("before_covert_fio2",sum(df['Fio2']>1))
     for i in range(0,df.shape[0]):
         if df.iloc[i,9] >50:
             df.iloc[i,9] = (df.iloc[i,9]-32)/1.8
         if df.iloc[i,5] >1:
             df.iloc[i, 5] = df.iloc[i, 5] / 100
-    # print("after_covert_fio2",sum(df['Fio2']>1))
 
     df = df[pd.notnull(df['Fio2'])]
     df = df [pd.notnull(df['Pao2'])]
@@ -57,10 +59,6 @@ def read_data(path, multi_class=False, seven_features=False, fitlerSpO2=True):
 
     Spo2_Fio2_log = np.log10(df['Spo2']/df['Fio2'])
     Pao2_Fio2_log = np.log10(df['Pao2']/df['Fio2'])
-    # plt.scatter(Spo2_Fio2_log,Pao2_Fio2_log,s=2)
-    # plt.xlabel('log(S/F)')
-    # plt.ylabel('log(P/F)')
-    # plt.show()
 
     print("female ratio",1-sum(df['gender'])/len(df['gender']),len(df['gender']))
     print("age", np.mean(df['age']),np.std(df['age']))
@@ -70,8 +68,7 @@ def read_data(path, multi_class=False, seven_features=False, fitlerSpO2=True):
     if seven_features:
         df = df[pd.notnull(df['Map'])]
         df = df[pd.notnull(df['Temperature'])]
-        #delete sample which has Vt>=4000
-        df = df[4000>=df.Vt]
+        df = df[4000>=df.Vt] #delete sample which has Vt>=4000
         data = np.array([df['Spo2'],df['Fio2'],df['Peep'],df['Vt'],df['Map'],df['Temperature'],df['vaso'], df['Pao2']/df['Fio2']])
     else:
         data = np.array([df['Spo2'], df['Fio2'], df['Peep'], df['Pao2']/df['Fio2']])
@@ -166,17 +163,6 @@ def non_linear(S):
 
 
 def conv_cate(column):
-    '''
-    for row in range(0,len(column)):
-        if column[row] >300:
-            column[row] = 3
-        elif  200<column[row] <=300:
-            column[row] = 2
-        elif 100<column[row] <=200:
-            column[row] = 2
-        else:
-            column[row] = 1
-    '''
     for row in range(0,len(column)):
         column[row] = 0 if column[row] <= 150 else 1
     return column
@@ -197,8 +183,7 @@ def get_baseline(X_test, y_test):
     cm_loglinear = confusion_matrix(real_class,pred_class_loglinear)
     print("F1 logLinear: ", metrics.f1_score(real_class, pred_pfratio_loglinear))
     print("print loglinear size: ", real_class.shape)
-    #print(cm_loglinear)
-    #print('pred_class_loglinear:', pred_class_loglinear)
+
     print("accuracy_loglinear",accuracy(cm_loglinear))
     print("loglinear accuracy: ", metrics.accuracy_score(real_class, pred_pfratio_loglinear))
     print('\n')
@@ -209,13 +194,14 @@ def get_baseline(X_test, y_test):
     print("F1 nonLinear: ", metrics.f1_score(real_class, pred_class_nonlinear))
     print("print nonlinear size: ", real_class.shape)
     cm_nonlinear = confusion_matrix(real_class,pred_class_nonlinear)
-    #print(cm_nonlinear)
+
     print("accuracy_nonlinear",accuracy(cm_nonlinear))
     print("nonlinear accuracy: ", metrics.accuracy_score(real_class, pred_class_nonlinear))
     unique, counts = np.unique(y_test, return_counts=True)
     print('Class number: ', dict(zip(unique, counts)))
 
 def run_classifier(path, model='logistic_regression', seven_features=False, filterSpO2=True, load_model=False):
+
     if model == 'multi_class':
         data, df = read_data(path, multi_class=True, seven_features=seven_features, fitlerSpO2=filterSpO2)
     else:
@@ -230,6 +216,12 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
         n_features = 7
     else:
         n_features = 3
+
+    plot_data_file = 'Plots/data/precision_recall_' + str(n_features) + 'Features_' + 'filtered_' + str(filterSpO2) + '.csv'
+    if not os.path.exists(plot_data_file):
+        with open(plot_data_file, 'w', newline='') as file:
+            csvwriter = csv.writer(file)
+            csvwriter.writerow(['model', 'precisions', 'recalls', 'thresholds'])
 
     print("-----------------------------------------------")
     if model == 'multi_class':
@@ -252,11 +244,17 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
     i = 0
     res = np.zeros((8, n_split))
     tprs = []
+
+    prec_recall_curves = {'precision': [], 'recall': [], 'threshold':[]}
+
     mean_fpr = np.linspace(0, 1, 100)
     for train_index, test_index in kFold.split(X, y):
         print('Fold:',i + 1)
         X_train, X_test = X[train_index], X[test_index]
         y_train, y_test = y[train_index], y[test_index]
+
+        y_preds_prob_total = []
+        y_trues = []
 
         X_train_scale, X_test_scale = normalize(X_train, X_test, seven_features=seven_features)
         print('x train:',X_train_scale.shape)
@@ -276,19 +274,23 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
             else:
                 classifier = MLPClassifier((6, 3), max_iter=200, activation='tanh', solver='adam', random_state=1, momentum=0.6) # current best
 
-
         else:
             model_name = 'Logistic Regression'
             classifier = linear_model.LogisticRegression()
 
         final_classifier = base.clone(classifier)
         if load_model: # load a pretrained model
-            classifier = load('saved_models/classifer/' + subSpO2Folder + model_name.replace(' ', '_') + '_'  + str(n_features) + '_features.joblib')
+            model_path = 'saved_models/classifer/' + subSpO2Folder + model_name.replace(' ', '_') + '_'  + str(n_features) + '_features.joblib'
+            print('load file from:', model_path)
+            classifier = load(model_path)
         else: # train a new model
             classifier.fit(X_train_scale, y_train)
 
         y_pred = classifier.predict(X_test_scale)
         y_pred_prob = classifier.predict_proba(X_test_scale)[:,1]
+
+        y_preds_prob_total.append(y_pred_prob)
+        y_trues.append(y_test)
 
         f1_scores.append(metrics.f1_score(y_test, y_pred))
         tn, fp, fn, tp = confusion_matrix(y_test, y_pred).ravel()
@@ -303,8 +305,9 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
         res[7][i] = metrics.accuracy_score(y_test, y_pred)
         bic_val = bic.bic(y_test, y_pred_prob, n_features)
         bic_scores.append(bic_val)
-
+        aupr = metrics.average_precision_score(y_test, y_pred_prob)
         fpr, tpr, _ = metrics.roc_curve(y_test, y_pred_prob)
+
         tprs.append(interp(mean_fpr, fpr, tpr))
         #plt.plot(fpr, tpr, lw=2, alpha=0.3, label='ROC fold %d (AUC = %0.2f)' % (i, roc_auc))
 
@@ -315,6 +318,7 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
 
     # train a final model using entire set
     if not load_model:
+        X, X_copy = normalize(X, X, seven_features=seven_features)
         final_classifier.fit(X, y)
         final_pred = final_classifier.predict(X)
         print('Final F1 ', metrics.f1_score(y, final_pred))
@@ -345,6 +349,7 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
     print('   Negative LR:', res[6])
     print('           BIC:', np.mean(np.array(bic_scores)))
     print('      Accuracy:', res[7])
+    print('          AUPR:', aupr)
     print("\nBaseline")
     get_baseline(np.array([df['Spo2'], df['Fio2']]).T, y)
     print('==================================================')
@@ -352,19 +357,11 @@ def run_classifier(path, model='logistic_regression', seven_features=False, filt
     if model == 'multi_class':
         return
 
-    # Plot ROAUC
-    plt.plot([0, 1], [0, 1], linestyle='--', lw=2, color='black')
-    mean_tpr = np.mean(tprs, axis=0)
-    plt.plot(mean_fpr, mean_tpr, color='blue',
-             label=r'Mean ROC (AUC = %0.2f )' % (res[4]), lw=2, alpha=1)
+    precision_array, recall_array, thresholds = metrics.precision_recall_curve(np.array(y_trues).flatten(), np.array(y_pred_prob).flatten())
 
-    plt.xlabel('False Positive Rate')
-    plt.ylabel('True Positive Rate')
-    plt.title(model_name + ' AUC (' + str(n_features) + ' features)')
-    plt.legend(loc="lower right")
-    plt.text(0.32, 0.7, 'More accurate area', fontsize=12, color='green')
-    plt.text(0.63, 0.4, 'Less accurate area', fontsize=12, color='red')
-    plt.show()
+    with open(plot_data_file, 'a+', newline='') as file:
+        csvwriter = csv.writer(file)
+        csvwriter.writerow([model_name, str(precision_array), str(recall_array), str(thresholds)])
 
 
 def parse_arguments():
@@ -390,9 +387,10 @@ def main():
     fitlerSpO2 = args.filterSpO2
     load_model = args.load_model
 
-    #run_classifier(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
+    run_classifier(path, model=model, seven_features=seven_features, fitlerSpO2=fitlerSpO2, load_model=load_model)
 
-    run_classifier(path, model='mlp', seven_features=False, filterSpO2=False, load_model=False)
+    # This is for train and test in IDE without using arguments
+    #run_classifier(path, model='logistic_regression', seven_features=False, filterSpO2=False, load_model=False)
 
 
 if __name__ == '__main__':
