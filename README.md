@@ -45,7 +45,7 @@ Both scripts contain the same set of four arguments:
 
 --fitlerSpO2: if set to true, exclude samples with SpO2 values greater than 96.
 	
-#Apps:
+# Apps:
 
 The apps can be downloaded to add inputs and see outputs of different models.
 Download address:
@@ -53,4 +53,5 @@ Download address:
 https://drive.google.com/drive/folders/1AoieWO0w3BXvEpw6c0-OomjeQHzFJXY_?usp=sharing
 
 Windows: PaO2Predictor.exe
+
 Mac ios: PaO2Predictor_Mac.zip (need to unzip this)
