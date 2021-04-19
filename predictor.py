@@ -1,3 +1,4 @@
+
 import tkinter as tk
 import numpy as np
 from joblib import load
@@ -15,6 +16,7 @@ try:
 except AttributeError:
    wd = os.getcwd()
 
+
 '''
     Define GUI
 '''
@@ -31,15 +33,12 @@ mainframe.pack(pady = 100, padx = 100)
 
 
 # dropdown for selecting model
-type_choices = ['Linear_Regression (Regression)',
-                'SVR (Regression)',
-                'Neural_Network (Regression)',
-                'Logistic_Regression (Classification)',
-                'SVC (Classification)',
-                'Neural_Network (Classification)']
+type_choices = ['Linear_Regression',
+                'svr',
+                'Neural_Network']
 
 tkvar = tk.StringVar(root)
-tkvar.set('Linear_Regression (Regression)') # set the default option
+tkvar.set('Linear_Regression') # set the default option
 
 popupMenu = tk.OptionMenu(mainframe, tkvar,  *type_choices)
 tk.Label(mainframe, text="Choose a model").grid(row=1, column =0)
@@ -47,14 +46,14 @@ popupMenu.grid(row=1, column=1)
 
 # checkbox for deciding whether or not filter
 filter_var = tk.IntVar()
-cb_filter = tk.Checkbutton(mainframe, text='Use the Model Trained on Subset(SpO2 < 97%)', variable=filter_var, onvalue=1, offvalue=0)
+cb_filter = tk.Checkbutton(mainframe, text='Model trained with SpO2 >= 96 samples excluded', variable=filter_var, onvalue=1, offvalue=0)
 cb_filter.grid(row=3, column=1)
 
 tk.Label(mainframe, text="Input Features").grid(row=4, column=0)
 
 # Input Features:
 curr_row = 5
-tk.Label(mainframe, text="SpO2 (0 ~ 100) %:").grid(row=curr_row, column=0)
+tk.Label(mainframe, text="SpO2 (0 ~ 100):").grid(row=curr_row, column=0)
 entry_spo2 = tk.Entry(mainframe)
 entry_spo2.grid(row=curr_row, column=1)
 curr_row += 1
@@ -64,12 +63,12 @@ entry_fio2 = tk.Entry(mainframe)
 entry_fio2.grid(row=curr_row, column=1)
 curr_row += 1
 
-tk.Label(mainframe, text="Peep:").grid(row=curr_row, column=0)
+tk.Label(mainframe, text="PEEP (cmH₂O):").grid(row=curr_row, column=0)
 entry_peep = tk.Entry(mainframe)
 entry_peep.grid(row=curr_row, column=1)
 curr_row += 1
 
-tk.Label(mainframe, text="Ventilation:").grid(row=curr_row, column=0)
+tk.Label(mainframe, text="Tidal Volumne (ml):").grid(row=curr_row, column=0)
 entry_vt = tk.Entry(mainframe)
 entry_vt.grid(row=curr_row, column=1)
 curr_row += 1
@@ -84,14 +83,14 @@ entry_temp = tk.Entry(mainframe)
 entry_temp.grid(row=curr_row, column=1)
 curr_row += 1
 
-tk.Label(mainframe, text="Vasopressor Administration (1 or 0):").grid(row=curr_row, column=0)
+tk.Label(mainframe, text="vaso (1 or 0):").grid(row=curr_row, column=0)
 entry_vaso = tk.Entry(mainframe)
 entry_vaso.grid(row=curr_row, column=1)
 curr_row += 1
 
 # Feature used:
 feature_3_var = tk.IntVar()
-cb_features = tk.Checkbutton(mainframe, text='Only Use Top 3 Features (SpO2, FiO2, Peep)', variable=feature_3_var, onvalue=1, offvalue=0)
+cb_features = tk.Checkbutton(mainframe, text='Use Top 3 Features (SpO2, FiO2, Peep)', variable=feature_3_var, onvalue=1, offvalue=0)
 cb_features.grid(row=curr_row, column=1)
 curr_row += 1
 
@@ -123,22 +122,14 @@ def predict():
 
     pred = model.predict(in_features)
 
-    if '(Regression)' in tkvar.get(): # Regression Model predicts PaO2 Value
-        pred = np.expand_dims(pred, axis=0)
-        pred = output_scaler.inverse_transform(pred).squeeze()
-        pred = np.round(pred, decimals=2)
-        pred_var.set('Predicted PaO2 Value: ' + str(pred))
-        print('Prediction PaO2 Value:', pred)
+     # Regression Model predicts PaO2 Value
+    pred = np.expand_dims(pred, axis=0)
+    pred = output_scaler.inverse_transform(pred).squeeze()
+    pred = np.round(pred, decimals=2)
+    pred_var.set('Predicted PaO2 Value: ' + str(pred))
+    print('Prediction PaO2 Value:', pred)
 
-    else: # Classification Model predicts if PaO2 is greater than 150
-        pred = 'True' if pred[0] == 0 else 'False'
-        prob = model.predict_proba(in_features)[:,1]
-        # prob =  str(np.round(prob[0], decimals=4)*100)
-        # if len(prob) > 5:
-        #     prob = prob[0:5]
-        pred = 'True' if prob >= 0.5 else 'False'
-        pred_var.set('PaO2/FiO2 Ratio >150: ' + pred)
-        print('PaO2/FiO2 Ratio > 150:', pred)
+
     root.update()
     pred_label.grid(row=14, column=0)
     return pred
@@ -148,14 +139,14 @@ def load_model():
     model_dir = 'saved_models/'
     model_name = tkvar.get()
 
-    model_dir += 'regressor/' if '(Regression)' in model_name else 'classifier/'
+    model_dir += 'regressor/'
     model_dir += 'FilteredSpO2/' if filter_var.get() == 1 else 'NoSpO2Filtering/'
 
     model_surfix = '_3_features' if feature_3_var.get() == 1 else '_7_features'
     model_name = model_name.split(' ')[0]
     model_path = model_dir + model_name + model_surfix
 
-    if 'Neural_Network (Regression)' not in tkvar.get():
+    if 'Neural_Network' not in tkvar.get():
         model = load(os.path.join(wd, model_path + '.joblib'))
     else:
         model = keras.models.load_model(os.path.join(wd, model_path + '.ckpt'), custom_objects={'rmse': rmse})
@@ -179,7 +170,7 @@ def read_input():
 # Load pretrained scalers
 def load_scalers():
     scaler_dir = 'saved_models/'
-    scaler_dir += 'regressor/' if '(Regression)' in tkvar.get() else 'classifier/'
+    scaler_dir += 'regressor/'
     scaler_dir += 'FilteredSpO2/' if filter_var.get() == 1 else 'NoSpO2Filtering/'
 
     in_scaler_name = 'InputScaler_'
@@ -191,7 +182,7 @@ def load_scalers():
     print(in_scaler_name, out_scaler_name)
 
     input_scaler = load(os.path.join(wd, scaler_dir + in_scaler_name + '.joblib'))
-    output_scaler = load(os.path.join(wd, scaler_dir + out_scaler_name + '.joblib')) if '(Regression)' in tkvar.get() else None
+    output_scaler = load(os.path.join(wd, scaler_dir + out_scaler_name + '.joblib'))
     return input_scaler, output_scaler
 
 def rmse(y_true,y_predict):
@@ -204,6 +195,5 @@ def rmse(y_true,y_predict):
 btn_go = tk.Button(mainframe, text='Predict', command=predict, bg='green',fg='black')
 btn_go.grid(row=curr_row, column= 2)
 root.mainloop()
-
 
 
