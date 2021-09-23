@@ -4,7 +4,7 @@ block_cipher = None
 
 
 a = Analysis(['predictor.py'],
-             pathex=['/Users/yunzhang/Desktop/Projects/PaO2Predictor'],
+             pathex=['Projects/PaO2Predictor'],
              binaries=[],
              datas=[('saved_models/regressor', 'saved_models/regressor')],
              hiddenimports=['sklearn.neural_network'],
